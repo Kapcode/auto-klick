@@ -1,0 +1,13 @@
+{
+    "actions": [
+        {
+            "kind": "com.example.autoklick.ActionItem.KeyPress",
+            "keyCode": 81,
+            "label": "Q"
+        }
+    ],
+    "shouldLockLocation": false,
+    "lockedY": 1076,
+    "keepControlMode": true,
+    "keepControlDelayMs": 9060
+}
