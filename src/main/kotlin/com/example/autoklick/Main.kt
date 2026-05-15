@@ -72,7 +72,6 @@ fun ProfileTabContent(engine: ClickerEngine, listener: GlobalKeyListener) {
     var statsVersion by remember { mutableLongStateOf(0L) }
 
     var lockChecked by remember(engine) { mutableStateOf(engine.shouldLockLocation) }
-    var exitToTrayChecked by remember(engine) { mutableStateOf(engine.exitToTray) }
     var keepControlChecked by remember(engine) { mutableStateOf(engine.keepControlMode) }
     var keepControlDelayInput by remember { mutableStateOf(engine.keepControlDelayMs.toString()) }
     var keepControlDelaySecInput by remember { mutableStateOf(secFormat.format(engine.keepControlDelayMs / 1000.0)) }
@@ -175,7 +174,6 @@ fun ProfileTabContent(engine: ClickerEngine, listener: GlobalKeyListener) {
             xInput = engine.lockedX.toString()
             yInput = engine.lockedY.toString()
             lockChecked = engine.shouldLockLocation
-            exitToTrayChecked = engine.exitToTray
             keepControlChecked = engine.keepControlMode
             timeoutInput = engine.timeoutMs.toString()
             timeoutSecInput = secFormat.format(engine.timeoutMs / 1000.0)
@@ -327,9 +325,6 @@ fun ProfileTabContent(engine: ClickerEngine, listener: GlobalKeyListener) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = lockChecked, onCheckedChange = { focusManager.clearFocus(); lockChecked = it; engine.shouldLockLocation = it; engine.saveSettings() })
             Text("Lock Location")
-            Spacer(Modifier.width(12.dp))
-            Checkbox(checked = exitToTrayChecked, onCheckedChange = { focusManager.clearFocus(); exitToTrayChecked = it; engine.exitToTray = it; engine.saveSettings() })
-            Text("To Tray")
             Spacer(Modifier.width(12.dp))
             TextField(value = xInput, onValueChange = { xInput = it; it.toIntOrNull()?.let { engine.lockedX = it; engine.saveSettings() } }, label = { Text("X") }, modifier = Modifier.width(90.dp))
             Spacer(Modifier.width(4.dp))
@@ -528,6 +523,7 @@ fun App(listener: GlobalKeyListener) {
     var selectedTabIndex by remember { mutableStateOf(0) }
     var showDeleteConfirm by remember { mutableStateOf<ClickerEngine?>(null) }
     var uiFps by remember { mutableIntStateOf(0) }
+    var exitToTrayChecked by remember { mutableStateOf(engines.firstOrNull()?.exitToTray ?: false) }
 
     val deleteAction = {
         val engine = showDeleteConfirm
@@ -639,6 +635,18 @@ fun App(listener: GlobalKeyListener) {
                             selectedTabIndex = engines.size - 1
                         }) {
                             Icon(Icons.Default.Add, "Add Profile")
+                        }
+                        
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = exitToTrayChecked, onCheckedChange = { 
+                                exitToTrayChecked = it
+                                // apply globally to all profiles
+                                engines.forEach { engine ->
+                                    engine.exitToTray = it
+                                    engine.saveSettings()
+                                }
+                            })
+                            Text("To Tray")
                         }
                         
                         IconButton(onClick = { isDarkTheme = !isDarkTheme }) {

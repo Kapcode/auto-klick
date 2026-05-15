@@ -32,6 +32,7 @@ dependencies {
 compose.desktop {
     application {
         mainClass = "com.example.autoklick.MainKt"
+        jvmArgs += listOf("--enable-native-access=ALL-UNNAMED")
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "AutoKlick"
