@@ -105,6 +105,9 @@ class ClickerEngine(var profileName: String = "Default") {
     var keepControlDelayMs: Long = 100L
     var isEnabled: Boolean = true
 
+    @Volatile
+    var clickStartTimeNanos: Long = 0L
+
     private val json = Json { 
         prettyPrint = true
         ignoreUnknownKeys = true
@@ -206,15 +209,16 @@ class ClickerEngine(var profileName: String = "Default") {
             it.resetSessionStats()
         }
 
+        clickStartTimeNanos = System.nanoTime() // Record start time
+
         clickThread = Thread {
-            Thread.sleep(500)
+            Thread.sleep(500) // Initial delay before starting clicks
             if (shouldLockLocation && lockedX == 0 && lockedY == 0) {
                 val current = MouseInfo.getPointerInfo()?.location
                 lockedX = current?.x ?: 0
                 lockedY = current?.y ?: 0
             }
 
-            val startTime = System.nanoTime()
             val timeoutNanos = timeoutMs * 1_000_000L
             var tickIndex = 0L
 
@@ -222,7 +226,7 @@ class ClickerEngine(var profileName: String = "Default") {
                 while (clicking.get() && isEnabled) {
                     val loopStartTime = System.nanoTime()
                     
-                    if (timeoutMs > 0 && (loopStartTime - startTime) >= timeoutNanos) break
+                    if (timeoutMs > 0 && (loopStartTime - clickStartTimeNanos) >= timeoutNanos) break
 
                     // KeepControl Mode Logic
                     if (keepControlMode && shouldLockLocation) {
@@ -290,6 +294,7 @@ class ClickerEngine(var profileName: String = "Default") {
             _isClicking.value = false
             clickThread?.interrupt()
             clickThread = null
+            clickStartTimeNanos = 0L // Reset start time
         }
     }
 

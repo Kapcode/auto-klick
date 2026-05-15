@@ -11,7 +11,12 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Nightlight
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +45,8 @@ import java.util.*
 import java.util.logging.Level
 import java.util.logging.Logger
 import kotlin.system.exitProcess
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.sp
 
 @Composable
 fun ProfileTabContent(engine: ClickerEngine, listener: GlobalKeyListener) {
@@ -75,6 +82,9 @@ fun ProfileTabContent(engine: ClickerEngine, listener: GlobalKeyListener) {
     val actionItems = remember(engine) { mutableStateListOf<ActionItem>().apply { addAll(engine.actions) } }
     val isClicking by engine.isClicking.collectAsState()
     var toggleKeyLabel by remember(engine) { mutableStateOf(engine.toggleKeyLabel) }
+    
+    // We don't want this state tied just to remember block because listener properties can change outside composition
+    // However, recomposition is triggered by polling interval currently.
     var isRecording by remember { mutableStateOf(false) }
 
     var actionTextInput by remember { mutableStateOf("") }
@@ -123,6 +133,8 @@ fun ProfileTabContent(engine: ClickerEngine, listener: GlobalKeyListener) {
 
     LaunchedEffect(isClicking) { if (isClicking) focusManager.clearFocus() }
 
+    var timeLeftProgress by remember { mutableFloatStateOf(0f) }
+
     LaunchedEffect(engine, engine.statsPollingIntervalMs) {
         var lastTotalTicks = 0L
         while (true) {
@@ -156,7 +168,10 @@ fun ProfileTabContent(engine: ClickerEngine, listener: GlobalKeyListener) {
             val clicks = engine.totalClicks.get()
             totalClicksFormatted = if (clicks > 9999) scientificFormat.format(clicks) else clicks.toString()
             toggleKeyLabel = engine.toggleKeyLabel
+            
+            // Fix: Constantly poll the listener state to update the UI
             isRecording = listener.isRecordingToggleKey && listener.recordingEngine == engine
+            
             xInput = engine.lockedX.toString()
             yInput = engine.lockedY.toString()
             lockChecked = engine.shouldLockLocation
@@ -169,6 +184,16 @@ fun ProfileTabContent(engine: ClickerEngine, listener: GlobalKeyListener) {
             keepControlDelayInput = engine.keepControlDelayMs.toString()
             keepControlDelaySecInput = secFormat.format(engine.keepControlDelayMs / 1000.0)
             isEnabledChecked = engine.isEnabled
+
+            // Update time left progress
+            if (isClicking && engine.timeoutMs > 0 && engine.clickStartTimeNanos > 0) {
+                val elapsedNanos = System.nanoTime() - engine.clickStartTimeNanos
+                val totalTimeoutNanos = engine.timeoutMs * 1_000_000L
+                timeLeftProgress = (elapsedNanos.toFloat() / totalTimeoutNanos.toFloat()).coerceIn(0f, 1f)
+            } else {
+                timeLeftProgress = 0f
+            }
+
             val elapsed = System.currentTimeMillis() - startTime
             delay((engine.statsPollingIntervalMs - elapsed).coerceAtLeast(1L))
         }
@@ -187,6 +212,7 @@ fun ProfileTabContent(engine: ClickerEngine, listener: GlobalKeyListener) {
                 focusManager.clearFocus()
                 listener.recordingEngine = engine
                 listener.isRecordingToggleKey = true 
+                isRecording = true // Optimistically update UI
             }) {
                 Text(if (isRecording) "???" else "Key: $toggleKeyLabel")
             }
@@ -399,6 +425,50 @@ fun ProfileTabContent(engine: ClickerEngine, listener: GlobalKeyListener) {
         Spacer(Modifier.height(4.dp))
         TextField(value = actionTextInput, onValueChange = { if (it.endsWith(" ")) tryAddAction(it) else actionTextInput = it }, placeholder = { Text("Quick Add (Space)") }, modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) tryAddAction(actionTextInput) }, singleLine = true)
         Spacer(Modifier.height(8.dp))
+
+        // Time Left Progress Bar (Pie Chart)
+        if (isClicking && engine.timeoutMs > 0) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp)
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val circleColor = MaterialTheme.colors.onSurface.copy(alpha = 0.1f)
+                val progressColor = MaterialTheme.colors.primary
+                
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val strokeWidth = 8.dp.toPx()
+                    val sweepAngle = timeLeftProgress * 360f
+
+                    // Background circle
+                    drawArc(
+                        color = circleColor,
+                        startAngle = 0f,
+                        sweepAngle = 360f,
+                        useCenter = false,
+                        style = Stroke(strokeWidth)
+                    )
+
+                    // Progress arc
+                    drawArc(
+                        color = progressColor,
+                        startAngle = -90f, // Start from top
+                        sweepAngle = sweepAngle,
+                        useCenter = false,
+                        style = Stroke(strokeWidth)
+                    )
+                }
+                Text(
+                    text = "${(timeLeftProgress * 100).toInt()}%",
+                    style = MaterialTheme.typography.h6,
+                    fontSize = 18.sp,
+                    color = MaterialTheme.colors.onSurface
+                )
+            }
+        }
+
         Button(onClick = { focusManager.clearFocus(); engine.toggleClicking() }, modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.buttonColors(backgroundColor = if (isClicking) MaterialTheme.colors.error else MaterialTheme.colors.primary)) {
             Text(if (isClicking) { "STOP ($toggleKeyLabel)" } else { "START ($toggleKeyLabel)" })
         }
@@ -572,7 +642,7 @@ fun App(listener: GlobalKeyListener) {
                         }
                         
                         IconButton(onClick = { isDarkTheme = !isDarkTheme }) {
-                            Icon(Icons.Default.Refresh, "Toggle Theme")
+                            Icon(if (isDarkTheme) Icons.Default.LightMode else Icons.Default.Nightlight, "Toggle Theme")
                         }
 
                         Text("UI FPS: $uiFps", style = MaterialTheme.typography.caption, modifier = Modifier.padding(start = 8.dp))
@@ -618,45 +688,67 @@ fun App(listener: GlobalKeyListener) {
     }
 }
 
-fun main() = application {
-    val logger = Logger.getLogger(GlobalScreen::class.java.`package`.name)
-    logger.level = Level.OFF
-    logger.useParentHandlers = false
-    
-    val initialEngine = ClickerEngine("Default")
-    val listener = GlobalKeyListener(initialEngine)
-    
-    try { GlobalScreen.registerNativeHook() } catch (ex: NativeHookException) { exitProcess(1) }
-    GlobalScreen.addNativeKeyListener(listener)
+fun main() {
+    application {
+        val logger = Logger.getLogger(GlobalScreen::class.java.`package`.name)
+        logger.level = Level.OFF
+        logger.useParentHandlers = false
+        
+        val initialEngine = ClickerEngine("Default")
+        val listener = GlobalKeyListener(initialEngine)
+        
+        try { GlobalScreen.registerNativeHook() } catch (ex: NativeHookException) { exitProcess(1) }
+        GlobalScreen.addNativeKeyListener(listener)
 
-    val icon = remember {
-        val image = BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB)
-        val g = image.createGraphics()
-        g.color = java.awt.Color.RED
-        g.fillOval(4, 4, 24, 24)
-        g.dispose()
-        BitmapPainter(image.toComposeImageBitmap())
-    }
-
-    var isVisible by remember { mutableStateOf(true) }
-
-    if (isVisible) {
-        Window(
-            onCloseRequest = { isVisible = false },
-            title = "Auto Klick",
-            state = rememberWindowState(placement = WindowPlacement.Maximized)
-        ) {
-            App(listener)
+        val icon = remember {
+            val image = BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB)
+            val g = image.createGraphics()
+            g.color = java.awt.Color.RED
+            g.fillOval(4, 4, 24, 24)
+            g.dispose()
+            BitmapPainter(image.toComposeImageBitmap())
         }
-    }
 
-    Tray(
-        icon = icon,
-        tooltip = "Auto Klick",
-        onAction = { isVisible = true },
-        menu = {
-            Item("Open", onClick = { isVisible = true })
-            Item("Exit", onClick = { exitApplication() })
+        var isVisible by remember { mutableStateOf(true) }
+        
+        // Default to true. The Tray icon provides a way to reopen the window.
+        // Whether "To Tray" is generally enabled across all profiles could be a global setting,
+        // but here we check the currently active/first engine as a fallback.
+        val anyExitToTray = listener.engine.exitToTray
+
+        if (isVisible) {
+            Window(
+                onCloseRequest = {
+                    // Check if *any* currently loaded profile has exitToTray enabled.
+                    // A better approach might be a global setting, but for now we look at the currently selected tab's engine,
+                    // or just check if *any* engine wants to go to tray. Let's check if the currently selected one does.
+                    // Since we don't have direct access to selectedTabIndex here easily, let's just check the first one or a general rule.
+                    // For simplicity, let's use the first engine's setting as the "global" rule for the window close behavior.
+                    if (GlobalKeyListener.allEngines.firstOrNull()?.exitToTray == true) {
+                        isVisible = false
+                    } else {
+                        try { GlobalScreen.unregisterNativeHook() } catch (e: Exception) {} 
+                        exitApplication()
+                    }
+                },
+                title = "Auto Klick",
+                state = rememberWindowState(placement = WindowPlacement.Maximized)
+            ) {
+                App(listener)
+            }
         }
-    )
+
+        Tray(
+            icon = icon,
+            tooltip = "Auto Klick",
+            onAction = { isVisible = true },
+            menu = {
+                Item("Open", onClick = { isVisible = true })
+                Item("Exit", onClick = { 
+                    try { GlobalScreen.unregisterNativeHook() } catch (e: Exception) {}
+                    exitApplication() 
+                })
+            }
+        )
+    }
 }
