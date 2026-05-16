@@ -48,6 +48,9 @@ import kotlin.system.exitProcess
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.sp
 
+// Global state for exitToTray since it was moved to the top bar
+val GlobalExitToTray = mutableStateOf(false)
+
 @Composable
 fun ProfileTabContent(engine: ClickerEngine, listener: GlobalKeyListener) {
     val focusManager = LocalFocusManager.current
@@ -516,6 +519,10 @@ fun App(listener: GlobalKeyListener) {
         }
         GlobalKeyListener.allEngines.clear()
         GlobalKeyListener.allEngines.addAll(list)
+        
+        // initialize the global toggle state
+        GlobalExitToTray.value = list.firstOrNull()?.exitToTray ?: false
+        
         list
     }
     
@@ -523,7 +530,7 @@ fun App(listener: GlobalKeyListener) {
     var selectedTabIndex by remember { mutableStateOf(0) }
     var showDeleteConfirm by remember { mutableStateOf<ClickerEngine?>(null) }
     var uiFps by remember { mutableIntStateOf(0) }
-    var exitToTrayChecked by remember { mutableStateOf(engines.firstOrNull()?.exitToTray ?: false) }
+    var exitToTrayChecked by GlobalExitToTray
 
     val deleteAction = {
         val engine = showDeleteConfirm
@@ -718,21 +725,11 @@ fun main() {
         }
 
         var isVisible by remember { mutableStateOf(true) }
-        
-        // Default to true. The Tray icon provides a way to reopen the window.
-        // Whether "To Tray" is generally enabled across all profiles could be a global setting,
-        // but here we check the currently active/first engine as a fallback.
-        val anyExitToTray = listener.engine.exitToTray
 
         if (isVisible) {
             Window(
                 onCloseRequest = {
-                    // Check if *any* currently loaded profile has exitToTray enabled.
-                    // A better approach might be a global setting, but for now we look at the currently selected tab's engine,
-                    // or just check if *any* engine wants to go to tray. Let's check if the currently selected one does.
-                    // Since we don't have direct access to selectedTabIndex here easily, let's just check the first one or a general rule.
-                    // For simplicity, let's use the first engine's setting as the "global" rule for the window close behavior.
-                    if (GlobalKeyListener.allEngines.firstOrNull()?.exitToTray == true) {
+                    if (GlobalExitToTray.value) {
                         isVisible = false
                     } else {
                         try { GlobalScreen.unregisterNativeHook() } catch (e: Exception) {} 
@@ -746,6 +743,9 @@ fun main() {
             }
         }
 
+        // Only show tray if the setting is checked, or optionally always show it.
+        // We'll leave it always shown since it might be useful, but since we are specifically changing
+        // behavior based on "To Tray" checked, let's keep it here so they can reopen it.
         Tray(
             icon = icon,
             tooltip = "Auto Klick",
